@@ -11,7 +11,7 @@ class CodeGenerator:
         self.code_section = []
 
     def new_label(self, prefix='L'):
-        label = f'{prefix}{self.label_cnt}'
+        label = f'{prefix}_{self.label_cnt}'
         self.label_cnt += 1
         return label
 
@@ -47,30 +47,57 @@ class CodeGenerator:
             elif op == '=':
                 l1 = self.new_label('IF_TRUE')
                 l2 = self.new_label('END_IF')
-                self.emit('SUB tmp')  # ACC = right - left
+                self.emit('SUB tmp')
                 self.emit(f'JZ {l1}')
                 self.emit('LOADI 0')
                 self.emit(f'JMP {l2}')
                 self.emit(f'{l1}:')
                 self.emit('LOADI 1')
                 self.emit(f'{l2}:')
+            elif op in ['=', '!=', '<', '>']:
+                l1 = self.new_label('IF_TRUE')
+                l2 = self.new_label('END_IF')
+                self.emit('SUB tmp')
+
+                if op == '=':
+                    self.emit(f'JZ {l1}')
+                elif op == '!=':
+                    self.emit(f'JNZ {l1}')
+                elif op == '<':
+                    self.emit(f'JLT {l1}')
+                elif op == '>':
+                    self.emit(f'JGT {l1}')
+
+                self.emit('LOADI 0')
+                self.emit(f'JMP {l2}')
+                self.emit(f'{l1}:')
+                self.emit('LOADI 1')
+                self.emit(f'{l2}:')
+
         elif t == 'funcall':
-            # Если встроенная функция print_string
             if expr['name'] == 'print_string':
                 val = expr['args'][0]
                 if val['type'] == 'string':
-                    # Выводим каждый символ ASCII в цикле через OUT 0
                     for ch in val['value']:
                         self.emit(f'LOADI {ord(ch)}')
                         self.emit('OUT 0')
                 else:
-                    # например, var или funcall
                     self.gen_expr(val)
                     self.emit('OUT 0')
             else:
-                # вызов пользовательской функции
-                # Пока можно оставить заглушку
-                pass
+                for arg in expr['args']:
+                    self.gen_expr(arg)
+                    self.emit('PUSH')
+                self.emit(f'CALL {expr["name"]}')
+                for _ in expr['args']:
+                    self.emit('POP tmp')
+        elif t == 'read_line':
+            varname = expr['value']['name']
+            self.declare_var(varname)
+            self.emit('IN 0')  # читаем байт
+            self.emit(f'STORE {varname}')  # сохраняем в переменную
+            self.emit(f'LOAD {varname}')  # загружаем обратно в ACC — как результат выражения
+
         else:
             raise NotImplementedError(f"Не реализовано для типа {t}")
 
@@ -80,10 +107,11 @@ class CodeGenerator:
             self.declare_var(node['name'])
             self.gen_expr(node['expr'])
             self.emit(f'STORE {node["name"]}')
+        elif t == 'set':
+            self.gen_expr(node['expr'])
+            self.emit(f'STORE {node["name"]}')
         elif t == 'defunc':
-            # Сохраняем тело и параметры
             self.func_table[node['name']] = (node['params'], node['body'])
-            # Здесь можно добавить генерацию функции позже
         elif t == 'print_string':
             val = node['value']
             if val['type'] == 'string':
@@ -93,46 +121,77 @@ class CodeGenerator:
             else:
                 self.gen_expr(val)
                 self.emit('OUT 0')
+        elif t == 'if':
+            cond = node['cond']
+            then_branch = node['then']
+            else_branch = node['else']
+
+            label_else = self.new_label("ELSE")
+            label_end = self.new_label("ENDIF")
+
+            self.gen_expr(cond)
+            self.emit(f'JZ {label_else}')
+
+            if then_branch:
+                self.gen_node(then_branch)
+            self.emit(f'JMP {label_end}')
+
+            self.emit(f'{label_else}:')
+            if else_branch:
+                self.gen_node(else_branch)
+            self.emit(f'{label_end}:')
+        elif t == 'while':
+            start_label = self.new_label('WHILE_START')
+            end_label = self.new_label('WHILE_END')
+
+            self.emit(f'{start_label}:')
+            self.gen_expr(node['cond'])
+            self.emit('JZ ' + end_label)
+
+            for stmt in node['body']:
+                self.gen_node(stmt)
+
+            self.emit('JMP ' + start_label)
+            self.emit(f'{end_label}:')
+        elif t == 'funcall':
+            self.gen_expr(node)
         else:
             self.gen_expr(node)
 
-    def generate(self, program):
-        for node in program:
-            self.gen_node(node)
+    def gen_functions(self):
+        for name, (params, body) in self.func_table.items():
+            self.emit(f'{name}:')
+            for param in reversed(params):  # параметры приходят в обратном порядке
+                self.declare_var(param)
+                self.emit(f'POP {param}')
+            for stmt in body:
+                self.gen_node(stmt)
+            self.emit('RET')
 
     def get_code(self):
-        return '\n'.join(['; === DATA SECTION ==='] + self.data_section +
-                         ['\n; === CODE SECTION ==='] + self.code_section +
+        return '\n'.join(['.data'] + self.data_section +
+                         ['\n.text\n_start:'] + self.code_section +
                          ['HALT'])
 
 
-
-# ------------------------------
-# Точка входа: собрать программу
-# ------------------------------
-
-def generate(self, program):
-    for stmt in program:
-        self.gen_node(stmt)
+    def generate(self, program):
+        for stmt in program:
+            self.gen_node(stmt)
 
 
-if __name__ == '__main__':
-    source = """
-(defunc tail_recursion_loop (i) (
-    (var char 0)
-    (set char (+ i 48))
-    (print_string char)
-    (print_string "\n")
-    (set i (- i 1))
-    (if (= i 0) (0)(funcall tail_recursion_loop (i)))
- ))
-(funcall tail_recursion_loop (9))
-        """
-    parser = LispParser(source)
-    raw = parser.parse_program()
-    print(raw)
-    prog = [ast_to_expr(expr) for expr in raw]
-    print(prog)
-    generator = CodeGenerator()
-    generator.generate(prog)
-    print(generator.get_code())
+# if __name__ == '__main__':
+#     source = """
+# (var x 0)
+# (while
+# (read_line x)
+#     (print_string x))
+#         """
+#     parser = LispParser(source)
+#     raw = parser.parse_program()
+#     print(raw)
+#     prog = [ast_to_expr(expr) for expr in raw]
+#     print(prog)
+#     generator = CodeGenerator()
+#     generator.generate(prog)
+#     generator.gen_functions()
+#     print(generator.get_code())

@@ -54,7 +54,7 @@
   
   <condition> ::= "(" <comparison_operator> <expression> <expression> ")"
   
-  <comparison_operator> ::= ">" | "<" | "="
+  <comparison_operator> ::= ">" | "<" | "=" | "!="
   
   <expression> ::= <number>
                 | <identifier>
