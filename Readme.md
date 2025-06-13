@@ -1,80 +1,208 @@
 # Itmo-csa-lab4
+
 - Черемисова Мария P3210
 - Вариант `lisp | acc | harv | mc | tick | binary | stream | port | pstr | prob2 | cache`
-  - `lisp`: Синтаксис языка Lisp. S-exp:
-    1. Поддержка рекурсивных функций.
-    2. Любое выражение (statement) - expression.
-  - `acc` : Система команд должна быть выстроена вокруг аккумулятора:
-    1. Инструкции - изменяют значение, хранимое в аккумуляторе.
-    2. Ввод-вывод осуществляется через аккумулятор.
-  - `harv` : Гарвардская архитектура.
-  - `mc` : Команды реализованы с помощью микрокоманд.
-  - `tick` : Процессор необходимо моделировать с точностью до такта, процесс моделирования может быть приостановлен на любом такте.
-  - `binary` : Бинарное представление машинного кода.
-  - `stream` : Ввод-вывод осуществляется как поток токенов.
-  - `port` : Port-mapped (специальные инструкции для ввода-вывода), да я портовая шлюха.
-  - `pstr` : Length-prefixed (Pascal string).
-  - `prob2` : Euler problem 6 [link](https://projecteuler.net/problem=6).
-  - `cache` : Работа с памятью реализуется через кеш.
-    - Скорость доступа к кешу - 1 такт, к памяти - 10 тактов.
+    - `lisp`: Синтаксис языка Lisp. S-exp:
+        1. Поддержка рекурсивных функций.
+        2. Любое выражение (statement) - expression.
+    - `acc` : Система команд должна быть выстроена вокруг аккумулятора:
+        1. Инструкции - изменяют значение, хранимое в аккумуляторе.
+        2. Ввод-вывод осуществляется через аккумулятор.
+    - `harv` : Гарвардская архитектура.
+    - `mc` : Команды реализованы с помощью микрокоманд.
+    - `tick` : Процессор необходимо моделировать с точностью до такта, процесс моделирования может быть приостановлен на
+      любом такте.
+    - `binary` : Бинарное представление машинного кода.
+    - `stream` : Ввод-вывод осуществляется как поток токенов.
+    - `port` : Port-mapped (специальные инструкции для ввода-вывода), да я портовая шлюха.
+    - `pstr` : Length-prefixed (Pascal string).
+    - `prob2` : Euler problem 6 [link](https://projecteuler.net/problem=6).
+    - `cache` : Работа с памятью реализуется через кеш.
+        - Скорость доступа к кешу - 1 такт, к памяти - 10 тактов.
 
 # Язак lisp
-Основн на S-выражениях, где весь код представляется так: каждая конструкция записывается в виде списка, заключённого в круглые скобки, где первым элементом обычно является оператор или имя функции, а далее следуют аргументы. Ниже представлена формальная грамматика (в стиле BNF) языка, основанного на Lisp, определяющая допустимые конструкции программ.
-```
-<program> ::= <statement_list>
+  Основн на S-выражениях, где весь код представляется так: каждая конструкция записывается в виде списка, заключённого в
+  круглые скобки, где первым элементом обычно является оператор или имя функции, а далее следуют аргументы. Ниже
+  представлена формальная грамматика (в стиле BNF) языка, основанного на Lisp, определяющая допустимые конструкции
+  программ.
+  ```
+  <program> ::= <statement_list>
+  
+  <statement_list> ::= <statement> | <statement> <statement_list>
+  
+  <statement> ::= <var_declaration>
+                | <if_statement>
+                | <defunc_declaration>
+                | <while_statement>
+                | <function_call>
+                | <print_string>
+                | <read_line>
+  
+  <var_declaration> ::= "(var" <identifier> <expression> ")"
+  
+  <if_statement> ::= "(if" <condition> <statement_list> <statement_list> ")"
+  
+  <while_statement> ::= "(while" <condition> <statement_list> ")"
+  
+  <defunc_declaration> ::= "(defunc" <identifier> "(" <parameter_list> ")" <statement_list> ")"
+  
+  <function_call> ::= "(funcall" <identifier> "(" <argument_list> "))"
+  
+  <print_string> ::= "(print_string" <string> ")"
+  
+  <read_line> ::= "(read_line" <identifier> ")"
+  
+  <condition> ::= "(" <comparison_operator> <expression> <expression> ")"
+  
+  <comparison_operator> ::= ">" | "<" | "="
+  
+  <expression> ::= <number>
+                | <identifier>
+                | "(" <operator> <expression> <expression> ")"
+  
+  <operator> ::= "+" | "-" | "*" | "/"
+  
+  <parameter_list> ::= <identifier> | <identifier> <parameter_list>
+  
+  <argument_list> ::= <expression> | <expression> <argument_list>
+  
+  <identifier> ::= <letter> | <letter> <identifier_tail>
+  
+  <identifier_tail> ::= <letter> | <digit> | <identifier_tail>
+  
+  <string> ::= "\"" <string_content> "\""
+  
+  <string_content> ::= <character> | <character> <string_content>
+  
+  <character> ::= <letter> | <digit> | " " | "," | "!" | "?" 
+  
+  <letter> ::= "a" | "b" | ... | "z" | "A" | "B" | ... | "Z"
+  
+  <digit> ::= "0" | "1" | ... | "9"
+  
+  <number> ::= <digit> | <digit> <number>
+  
+  ```
+## Семантика  
+- Все выражения вычисляются по стратегии "сначала аргументы, затем оператор" (applicative order).
+- Все выражения возвращают значения.
+- Любое выражение или вызов функции всегда возвращают последнее вычисленное выражение.
+- Выполнение программы начинается с первого выражения, не считая объявления функций.
+- Переменные создаются через `var`, область видимости — глобальная и функциональная. Из функции невозможно обратиться к переменным извне, следует передавать их как аргументы.
+- Имена переменных и функций чувствительны к регистру.
+- `if` вычисляет условие, затем один из блоков `statement_list`.
+- `while` повторяет выполнение `statement_list`, пока условие истинно.
+- `defunc` создаёт именованную функцию с параметрами и телом, поддерживается рекурсия.
+- `funcall` вызывает ранее определённую функцию.
+- `print_string` выводит строку (Pascal-формат).
+- `read_line` — ввод строки в переменную, окончанием строки ожидается `\n`.
+- Выражения арифметики (`+`, `-`, `*`, `/`) выполняются над числовыми значениями.
 
-<statement_list> ::= <statement> | <statement> <statement_list>
+# Система Команд
+## Режимы адресации
+| Режим    | Описание                                                                      |
+|----------|-------------------------------------------------------------------------------|
+| DIRECT   | В команде содержится адрес, по которому находится операнд                     |
+| INDIRECT | В команде содержится адрес ячейки памяти, в которой содержится адрес операнда |
 
-<statement> ::= <var_declaration>
-              | <if_statement>
-              | <defunc_declaration>
-              | <while_statement>
-              | <function_call>
-              | <print_string>
-              | <read_line>
+## Набор машинных команд
+### LOAD
+- **Синтаксис:** `LOAD addr`
+- **Описание:** Загружает значение из памяти в аккумулятор ACC
+- **Операция:** `ACC ← M[addr]`
 
-<var_declaration> ::= "(var" <identifier> <expression> ")"
+### STORE
+- **Синтаксис:** `STORE addr`
+- **Описание:** Сохраняет содержимое ACC в память
+- **Операция:** `M[addr] ← ACC`
 
-<if_statement> ::= "(if" <condition> <statement_list> <statement_list> ")"
+### LOADI
+- **Синтаксис:** `LOADI val`
+- **Описание:** Немедленная загрузка значения в ACC
+- **Операция:** `ACC ← val`
 
-<while_statement> ::= "(while" <condition> <statement_list> ")"
+### ADD
+- **Синтаксис:** `ADD addr`
+- **Описание:** Сложение значения из памяти и ACC
+- **Операция:** `ACC ← ACC + M[addr]`
 
-<defunc_declaration> ::= "(defunc" <identifier> "(" <parameter_list> ")" <statement_list> ")"
+### SUB
+- **Синтаксис:** `SUB addr`
+- **Описание:** Вычитание из ACC значения из памяти
+- **Операция:** `ACC ← ACC - M[addr]`
 
-<function_call> ::= "(funcall" <identifier> "(" <argument_list> "))"
+### MUL
+- **Синтаксис:** `MUL addr`
+- **Описание:** Умножение значения ACC на значение из памяти
+- **Операция:** `ACC ← ACC * M[addr]`
 
-<print_string> ::= "(print_string" <string> ")"
+### DIV
+- **Синтаксис:** `DIV addr`
+- **Описание:** Деление ACC на значение из памяти
+- **Операция:** `ACC ← ACC / M[addr]`
 
-<read_line> ::= "(read_line" <identifier> ")"
+### INC
+- **Синтаксис:** `INC`
+- **Описание:** Инкрементирование значения ACC
+- **Операция:** `ACC++`
 
-<condition> ::= "(" <comparison_operator> <expression> <expression> ")"
+### DEC
+- **Синтаксис:** `DEC`
+- **Описание:** Декрементирование значение ACC
+- **Операция:** `ACC--`
 
-<comparison_operator> ::= ">" | "<" | "="
+### CLA
+- **Синтаксис:** `CLA`
+- **Описание:** Очистка ACC
+- **Операция:** `ACC <- 0`
 
-<expression> ::= <number>
-              | <identifier>
-              | "(" <operator> <expression> <expression> ")"
+### JMP
+- **Синтаксис:** `JMP addr`
+- **Описание:** Безусловный переход
+- **Операция:** `PC ← addr`
 
-<operator> ::= "+" | "-" | "*" | "/"
+### JZ
+- **Синтаксис:** `JZ addr`
+- **Описание:** Переход, если ACC 0
+- **Операция:** `if ACC == 0 then PC ← addr`
 
-<parameter_list> ::= <identifier> | <identifier> <parameter_list>
+### JNZ
+- **Синтаксис:** `JNZ addr`
+- **Описание:** Переход, если ACC не ноль
+- **Операция:** `if ACC != 0 then PC ← addr`
 
-<argument_list> ::= <expression> | <expression> <argument_list>
 
-<identifier> ::= <letter> | <letter> <identifier_tail>
+### JN
+- **Синтаксис:** `JN addr`
+- **Описание:** Переход, если ACC < 0
+- **Операция:** `if ACC < 0 then PC ← addr`
 
-<identifier_tail> ::= <letter> | <digit> | <identifier_tail>
+### JN
+- **Синтаксис:** `JN addr`
+- **Описание:** Переход, если ACC < 0
+- **Операция:** `if ACC < 0 then PC ← addr`
 
-<string> ::= "\"" <string_content> "\""
+### JNN
+- **Синтаксис:** `JNN addr`
+- **Описание:** Переход, если ACC > 0
+- **Операция:** `if ACC > 0 then PC ← addr`
 
-<string_content> ::= <character> | <character> <string_content>
+### IN
+- **Синтаксис:** `IN port`
+- **Описание:** Считывание значения из порта в ACC
+- **Операция:** `ACC ← IN[port]`
 
-<character> ::= <letter> | <digit> | " " | "," | "!" | "?" 
+### OUT
+- **Синтаксис:** `OUT port`
+- **Описание:** Запись значения из ACC в порт
+- **Операция:** `OUT[port] ← ACC`
 
-<letter> ::= "a" | "b" | ... | "z" | "A" | "B" | ... | "Z"
+### HALT
+- **Синтаксис:** `HALT`
+- **Описание:** Остановка выполнения программы
+- **Операция:** завершение модели
 
-<digit> ::= "0" | "1" | ... | "9"
 
-<number> ::= <digit> | <digit> <number>
-
-```
+# Схема
+её немного доделать под гарвардскую
+![Аккумуляторная схема](/img/processor.png)
