@@ -80,7 +80,7 @@ def ast_to_expr(ast):
             'body': [ast_to_expr(b) for b in args[2:][0]]
         }
 
-    if head in ('+', '-', '*', '/', '=', '<', '>', '<=', '>='):
+    if head in ('+', '-', '*', '/', '=', '<', '>'):
         left, right = args
         return {
             'type': 'binop',
