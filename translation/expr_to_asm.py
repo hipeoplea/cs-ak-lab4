@@ -1,194 +1,228 @@
+import sys
+
 from tokenizer import *
-from instrucrions import Opcode  # импортируем перечисление инструкций
+from instrucrions import *
+
 
 class CodeGenerator:
     def __init__(self):
-        self.label_cnt = 0
-        self.data_section = []
-        self.code_section = []
-        self.func_table = {}
-        self.scopes = [{}]  # стек областей видимости
+        self.lab_cnt = 0
+        self.data_lines = []
+        self.code_lines = []
+        self.data_addr = {}
+        self.const_map = {}
+        self.funcs = {}
+        self.scopes = [{}]
 
-    def new_label(self, prefix='L'):
-        label = f'{prefix}_{self.label_cnt}'
-        self.label_cnt += 1
-        return label
+    def _lab(self, p='L'):
+        self.lab_cnt += 1
+        return f'{p}{self.lab_cnt}'
 
-    def emit(self, line):
-        self.code_section.append(line)
+    def _const(self, v):
+        if v not in self.const_map:
+            label = f'c_{v}'
+            self.const_map[v] = label
+            self.data_lines.append(f'{label} .word {v}')
+        return self.const_map[v]
 
-    def declare_var(self, name):
-        current_scope = self.scopes[-1]
-        if name not in current_scope:
-            addr = f'{name}_{len(self.scopes)-1}'
-            current_scope[name] = addr
-            self.data_section.append(f'{addr} .word 0')
-        return current_scope[name]
+    def _emit(self, op, arg=None):
+        self.code_lines.append(op if arg is None else f"{op} {arg}")
 
-    def lookup_var(self, name):
+    def _label(self, name):
+        self.code_lines.append(f"{name}:")
+
+    def _decl(self, name):
+        scope = self.scopes[-1]
+        if name not in scope:
+            addr = f'{name}_{len(self.scopes) - 1}'
+            scope[name] = addr
+            self.data_lines.append(f'{addr} .word 0')
+        return scope[name]
+
+    def _addr(self, name):
         for scope in reversed(self.scopes):
             if name in scope:
                 return scope[name]
-        raise NameError(f"Variable '{name}' not declared in any visible scope")
+        raise NameError(name)
 
-    def gen_expr(self, expr):
-        t = expr['type']
+    def expr(self, e):
+        t = e['type']
         if t == 'number':
-            self.emit(f'{Opcode.LOADI.value} {expr["value"]}')
-        elif t == 'var':
-            addr = self.lookup_var(expr['name'])
-            self.emit(f'{Opcode.LOAD.value} {addr}')
-        elif t == 'binop':
-            self.gen_expr(expr['left'])
-            self.emit(Opcode.PUSH.value)
-            self.gen_expr(expr['right'])
-            self.emit('POP tmp')
-            tmp_addr = self.declare_var('tmp')
-            op = expr['op']
-            if op == '+':
-                self.emit(f'{Opcode.ADD.value} {tmp_addr}')
-            elif op == '-':
-                self.emit(f'{Opcode.SUB.value} {tmp_addr}')
-            elif op == '*':
-                self.emit(f'{Opcode.MUL.value} {tmp_addr}')
-            elif op == '/':
-                self.emit(f'{Opcode.DIV.value} {tmp_addr}')
-            elif op in ['=', '!=', '<', '>']:
-                l1 = self.new_label('IF_TRUE')
-                l2 = self.new_label('END_IF')
-                self.emit(f'{Opcode.SUB.value} {tmp_addr}')
-                if op == '=':
-                    self.emit(f'{Opcode.JZ.value} {l1}')
-                elif op == '!=':
-                    self.emit(f'{Opcode.JNZ.value} {l1}')
-                elif op == '<':
-                    self.emit(f'{Opcode.JLT.value} {l1}')
-                elif op == '>':
-                    self.emit(f'{Opcode.JGT.value} {l1}')
-                self.emit(f'{Opcode.LOADI.value} 0')
-                self.emit(f'{Opcode.JMP.value} {l2}')
-                self.emit(f'{l1}:')
-                self.emit(f'{Opcode.LOADI.value} 1')
-                self.emit(f'{l2}:')
-        elif t == 'funcall':
-            if expr['name'] == 'print_string':
-                val = expr['args'][0]
+            self._emit(Opcode.LOAD.value, self._const(e['value']))
+            return
+        if t in ('var', 'var_ref'):
+            self._emit(Opcode.LOAD.value, self._addr(e['name']))
+            return
+        if t == 'binop':
+            self.expr(e['left'])
+            tmp = self._decl('_tmp')
+            self._emit(Opcode.STORE.value, tmp)
+            self.expr(e['right'])
+            arith = {'+': Opcode.ADD, '-': Opcode.SUB, '*': Opcode.MUL, '/': Opcode.DIV}
+            if e['op'] in arith:
+                self._emit(arith[e['op']].value, tmp)
+                return
+            l_true, l_end = self._lab('T'), self._lab('E')
+            self._emit(Opcode.SUB.value, tmp)
+            cmp_j = {'=': Opcode.JZ, '!=': Opcode.JNZ, '<': Opcode.JLT, '>': Opcode.JGT}[e['op']]
+            self._emit(cmp_j.value, l_true)
+            self.expr({'type': 'number', 'value': 0})
+            self._emit(Opcode.JMP.value, l_end)
+            self._label(l_true)
+            self.expr({'type': 'number', 'value': 1})
+            self._label(l_end)
+            return
+        if t == 'funcall':
+            if e['name'] == 'print_string':
+                val = e['args'][0]
                 if val['type'] == 'string':
                     for ch in val['value']:
-                        self.emit(f'{Opcode.LOADI.value} {ord(ch)}')
-                        self.emit(f'{Opcode.OUT.value} 0')
+                        self._emit(Opcode.LOAD.value, self._const(ord(ch)))
+                        self._emit(Opcode.OUT.value, 0)
                 else:
-                    self.gen_expr(val)
-                    self.emit(f'{Opcode.OUT.value} 0')
-            else:
-                for arg in expr['args']:
-                    self.gen_expr(arg)
-                    self.emit(Opcode.PUSH.value)
-                self.emit(f'{Opcode.CALL.value} {expr["name"]}')
-                for _ in expr['args']:
-                    self.emit('POP tmp')
-        elif t == 'read_line':
-            varname = expr['value']['name']
-            addr = self.lookup_var(varname)
-            self.emit(f'{Opcode.IN.value} 0')
-            self.emit(f'{Opcode.STORE.value} {addr}')
-            self.emit(f'{Opcode.LOAD.value} {addr}')
-        else:
-            raise NotImplementedError(f"Не реализовано для типа {t}")
+                    self.expr(val)
+                    self._emit(Opcode.OUT.value, 0)
+                return
+            for arg in e['args']:
+                self.expr(arg)
+                self._emit(Opcode.PUSH.value)
+            self._emit(Opcode.CALL.value, e['name'])
+            return
+        if t == 'read_line':
+            addr = self._addr(e['value']['name'])
+            self._emit(Opcode.IN_.value, 0)
+            self._emit(Opcode.STORE.value, addr)
+            self._emit(Opcode.LOAD.value, addr)
+            return
+        raise NotImplementedError(t)
 
-    def gen_node(self, node):
-        t = node['type']
-        if t == 'var':
-            addr = self.declare_var(node['name'])
-            self.gen_expr(node['expr'])
-            self.emit(f'{Opcode.STORE.value} {addr}')
-        elif t == 'set':
-            addr = self.lookup_var(node['name'])
-            self.gen_expr(node['expr'])
-            self.emit(f'{Opcode.STORE.value} {addr}')
-        elif t == 'defunc':
-            self.func_table[node['name']] = (node['params'], node['body'])
-        elif t == 'print_string':
-            val = node['value']
-            if val['type'] == 'string':
-                for ch in val['value']:
-                    self.emit(f'{Opcode.LOADI.value} {ord(ch)}')
-                    self.emit(f'{Opcode.OUT.value} 0')
-            else:
-                self.gen_expr(val)
-                self.emit(f'{Opcode.OUT.value} 0')
-        elif t == 'if':
-            cond = node['cond']
-            then_branch = node['then']
-            else_branch = node['else']
-            label_else = self.new_label('ELSE')
-            label_end = self.new_label('ENDIF')
-            self.gen_expr(cond)
-            self.emit(f'{Opcode.JZ.value} {label_else}')
-            if then_branch:
-                self.gen_node(then_branch)
-            self.emit(f'{Opcode.JMP.value} {label_end}')
-            self.emit(f'{label_else}:')
-            if else_branch:
-                self.gen_node(else_branch)
-            self.emit(f'{label_end}:')
-        elif t == 'while':
-            start_label = self.new_label('WHILE_START')
-            end_label = self.new_label('WHILE_END')
-            self.emit(f'{start_label}:')
-            self.gen_expr(node['cond'])
-            self.emit(f'{Opcode.JZ.value} {end_label}')
-            for stmt in node['body']:
-                self.gen_node(stmt)
-            self.emit(f'{Opcode.JMP.value} {start_label}')
-            self.emit(f'{end_label}:')
-        elif t == 'funcall':
-            self.gen_expr(node)
-        else:
-            self.gen_expr(node)
+    def node(self, n):
+        if n is None:
+            return
+        t = n['type']
+        if t in ('var_decl', 'var'):
+            addr = self._decl(n['name'])
+            if 'expr' in n and not (n['expr']['type'] == 'number' and n['expr']['value'] == 0):
+                self.expr(n['expr'])
+                self._emit(Opcode.STORE.value, addr)
+            return
+        if t == 'set':
+            self.expr(n['expr'])
+            self._emit(Opcode.STORE.value, self._addr(n['name']))
+            return
+        if t == 'defunc':
+            self.funcs[n['name']] = (n['params'], n['body'])
+            return
+        if t == 'print_string':
+            self.expr({'type': 'funcall', 'name': 'print_string', 'args': [n['value']]})
+            return
+        if t == 'if':
+            l_else, l_end = self._lab('ELSE'), self._lab('END')
+            self.expr(n['cond'])
+            self._emit(Opcode.JZ.value, l_else)
+            self.node(n['then'])
+            self._emit(Opcode.JMP.value, l_end)
+            self._label(l_else)
+            if n.get('else'):
+                self.node(n['else'])
+            self._label(l_end)
+            return
+        if t == 'while':
+            l_start, l_end = self._lab('W0'), self._lab('W1')
+            self._label(l_start)
+            self.expr(n['cond'])
+            self._emit(Opcode.JZ.value, l_end)
+            for stmt in n['body']:
+                self.node(stmt)
+            self._emit(Opcode.JMP.value, l_start)
+            self._label(l_end)
+            return
+        if t == 'funcall':
+            self.expr(n)
+            return
+        self.expr(n)
 
-    def gen_functions(self):
-        for name, (params, body) in self.func_table.items():
+    def _emit_funcs(self):
+        for name, (params, body) in self.funcs.items():
             self.scopes.append({})
-            self.emit(f'{name}:')
-            for param in reversed(params):
-                addr = self.declare_var(param)
-                self.emit(f'{Opcode.POP.value} {addr}')
+            self._label(name)
+            # PROLOGUE: pop return, then pop args, then restore return
+            ret_tmp = self._decl('_ret')
+            self._emit(Opcode.POP.value)
+            self._emit(Opcode.STORE.value, ret_tmp)
+            for p in reversed(params):
+                self._emit(Opcode.POP.value)
+                self._emit(Opcode.STORE.value, self._decl(p))
+            self._emit(Opcode.LOAD.value, ret_tmp)
+            self._emit(Opcode.PUSH.value)
+            # function body
             for stmt in body:
-                self.gen_node(stmt)
-            self.emit(Opcode.RET.value)
+                self.node(stmt)
+            self._emit(Opcode.RET.value)
             self.scopes.pop()
 
-    def get_code(self):
-        return '\n'.join(
-            ['.data'] + self.data_section +
-            ['\n.text\n_start:'] + self.code_section +
-            [Opcode.HALT.value]
-        )
+    def _link(self):
+        addr = 0
+        for ln in self.data_lines:
+            self.data_addr[ln.split()[0]] = addr
+            addr += 1
+        pc, lbl_addr = 0, {}
+        for ln in self.code_lines:
+            if ln.endswith(':'):
+                lbl_addr[ln[:-1]] = pc
+            else:
+                pc += 1
+        out, pc = [], 0
+        for ln in self.code_lines:
+            if ln.endswith(':'):
+                continue
+            parts = ln.split()
+            if len(parts) == 2:
+                op, arg = parts
+                if op in BRANCH_OPS and arg in lbl_addr:
+                    arg = str(lbl_addr[arg] - pc - 1)
+                elif arg in self.data_addr:
+                    arg = str(self.data_addr[arg])
+                ln = f"{op} {arg}"
+            out.append(ln)
+            pc += 1
+        return out
 
-    def generate(self, program):
-        for stmt in program:
-            self.gen_node(stmt)
+    def to_binary(self):
+        linked = self._link()
+        binary = bytearray()
+        for line in linked:
+            parts = line.split()
+            op = parts[0]
+            opcode = OPCODE_TABLE[op]
+            arg = int(parts[1]) if len(parts) == 2 else 0
+            if arg < 0:
+                arg &= (1 << 27) - 1
+            word = (opcode << 27) | arg
+            binary.extend(word.to_bytes(4, 'big'))
+        return binary
+
+    def generate(self, prog):
+        for s in prog:
+            self.node(s)
+        self._emit(Opcode.HALT.value)
+        self._emit_funcs()
+
+    def code(self):
+        return '\n'.join(['.data'] + self.data_lines + ['', '.text'] + self._link())
 
 
 if __name__ == '__main__':
-    source = """
-(defunc tail_recursion_loop (i) (
-    (var char 0)
-    (set char (+ i 48))
-    (print_string char)
-    (print_string "\\n")
-    (set i (- i 1))
-    (if (= i 0) (0)(funcall tail_recursion_loop (i)))
- ))
-(funcall tail_recursion_loop (9)) 
- """
+    from tokenizer import LispParser, ast_to_expr
+
+    with open(sys.argv[1], 'r', encoding='utf-8') as f:
+        source = f.read()
     parser = LispParser(source)
-    raw = parser.parse_program()
-    print(raw)
-    prog = [ast_to_expr(expr) for expr in raw]
-    print(prog)
-    generator = CodeGenerator()
-    generator.generate(prog)
-    generator.gen_functions()
-    print(generator.get_code())
+    raw_ast = parser.parse_program()
+    high_ast = [ast_to_expr(e) for e in raw_ast]
+    gen = CodeGenerator()
+    gen.generate(high_ast)
+    print(gen.code())
+    out_bytes = gen.to_binary()
+    with open(sys.argv[2], 'wb') as f:
+        f.write(out_bytes)

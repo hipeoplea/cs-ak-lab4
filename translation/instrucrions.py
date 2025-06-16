@@ -1,12 +1,7 @@
 import json
 from enum import Enum
 
-class AddressingType(int, Enum):
-    DIRECT = 0
-    INDIRECT = 1
-
 class Opcode(str, Enum):
-    LOADI = "loadi"
     LOAD = "load"
     STORE = "store"
     PUSH = "push"
@@ -26,15 +21,26 @@ class Opcode(str, Enum):
     JGT = "jgt"
     HALT = "halt"
 
-control_commands = [Opcode.JZ, Opcode.JNZ, Opcode.JGT, Opcode.JMP, Opcode.JLT]
+OPCODE_TABLE = {
+    'halt': 0b00000,
+    'load': 0b00010,
+    'store': 0b00011,
+    'push': 0b00100,
+    'pop':  0b00101,
+    'add':  0b00110,
+    'sub':  0b00111,
+    'mul':  0b01000,
+    'div':  0b01001,
+    'call': 0b01010,
+    'ret':  0b01011,
+    'in':   0b01101,
+    'out':  0b01110,
+    'jmp':  0b01111,
+    'jz':   0b10000,
+    'jnz':  0b10001,
+    'jlt':  0b10010,
+    'jgt':  0b10011,
+}
 
-
-def write_code(filename, code):
-    with open(filename, "w", encoding="utf-8") as file:
-        file.write(json.dumps(code, indent=4))
-
-
-def read_code(filename):
-    with open(filename, encoding="utf-8") as file:
-        code = json.loads(file.read())
-    return code[1:], code[0]
+BRANCH_OPS = {Opcode.JMP.value, Opcode.JZ.value, Opcode.JNZ.value,
+              Opcode.JLT.value, Opcode.JGT.value, Opcode.CALL.value}
