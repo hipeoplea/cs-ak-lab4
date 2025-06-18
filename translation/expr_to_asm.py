@@ -253,4 +253,4 @@ if __name__ == '__main__':
             for name, addr in gen.data_addr.items():
                 f.write(f'{name} = {addr}\n')
         with open(sys.argv[2], 'wb') as f:
-            f.write(gen.to_binary(with_data=True))
+            f.write(gen.to_binary())
