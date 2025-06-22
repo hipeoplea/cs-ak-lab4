@@ -25,7 +25,7 @@ class Memory:
 
 
 class CPU:
-    def __init__(self, instr_mem, data_mem, log_path="trace.log"):
+    def __init__(self, instr_mem, data_mem, log_path="trace.log", input_path=None, output_path=None):
         self.ROM = ROM
         self.LUT = OPCODE_TO_UADDR
 
@@ -33,6 +33,10 @@ class CPU:
         self.memory = Memory()
         self.memory.instr = instr_mem
         self.memory.data = data_mem
+
+        self.input_buffer = list(open(input_path, encoding='utf-8').read()) if input_path else []
+        self.output_buffer = []
+        self.output_path = output_path
 
         self.last_uPC = 0
         self.log = open(log_path, "w", encoding="utf-8")
@@ -95,7 +99,14 @@ class CPU:
             alu = 0
 
         if acc_l:
-            r.ACC = 0 if io_sel else alu
+            if io_sel:
+                if self.input_buffer:
+                    char = self.input_buffer.pop(0)
+                    r.ACC = ord(char)
+                else:
+                    r.halted = True
+            else:
+                r.ACC = alu
 
         if dal:
             r.DataA = r.ARG if adr_sel else alu
@@ -110,7 +121,9 @@ class CPU:
             r.SP = alu
 
         if out_l:
-            print(f"[OUT]: {chr(r.ACC & 0xFF)}")
+            ch = chr(r.ACC & 0xFF)
+            self.output_buffer.append(ch)
+            print(f"[OUT]: {ch}")
 
         if ip_l:
             r.IP = alu if ip_sel == 0 else r.ARG
@@ -142,6 +155,9 @@ class CPU:
         self.fetch_next_instruction()
         while not self.registers.halted:
             self.step()
+        if self.output_path:
+            with open(self.output_path, "w", encoding="utf-8") as f:
+                f.write(str(self.output_buffer))
 
     def print_memory(self):
         print("=== .data memory (адрес: значение) ===")
@@ -184,9 +200,20 @@ def load_binary(path):
 
     return instr_mem, data_mem
 
+if __name__ == "__main__":
+    import sys
 
-instr_mem, data_mem = load_binary("..\\store_addr_test_compatible.bin")
-cpu = CPU(instr_mem, data_mem)
-cpu.print_memory()
-cpu.run()
-cpu.print_memory()
+    if len(sys.argv) != 4:
+        print("Usage:")
+        print("  python cpu_sim.py <program.bin> <input.txt> <output.txt>")
+        sys.exit(1)
+
+    bin_path = sys.argv[1]
+    input_path = sys.argv[2]
+    output_path = sys.argv[3]
+
+    instr_mem, data_mem = load_binary(bin_path)
+
+    cpu = CPU(instr_mem, data_mem, input_path=input_path, output_path=output_path)
+    cpu.run()
+    cpu.print_memory()
