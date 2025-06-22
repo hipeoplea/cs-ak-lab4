@@ -1,6 +1,7 @@
 import struct
 from microcode_memory import ROM, OPCODE_TO_UADDR
 
+
 class Registers:
     def __init__(self):
         self.ACC = 0
@@ -12,13 +13,16 @@ class Registers:
         self.IR = 0
         self.Z = 0
         self.N = 0
+        self.ARG = 0
         self.halted = False
         self.macro_cnt = 0
+
 
 class Memory:
     def __init__(self):
         self.data = {}
         self.instr = []
+
 
 class CPU:
     def __init__(self, instr_mem, data_mem, log_path="trace.log"):
@@ -30,32 +34,30 @@ class CPU:
         self.memory.instr = instr_mem
         self.memory.data = data_mem
 
+        self.last_uPC = 0
         self.log = open(log_path, "w", encoding="utf-8")
 
     def fetch_next_instruction(self):
         r = self.registers
         if r.IP >= len(self.memory.instr):
-            print(f"[FETCH] IP вышел за пределы памяти: IP={r.IP}")
             r.halted = True
             return
 
         r.IR = self.memory.instr[r.IP]
+        r.ARG = (r.IR & 0x07FFFFFF)
+        if r.ARG & (1 << 26):
+            r.ARG -= (1 << 27)
         opcode = (r.IR >> 27) & 0x1F
-        argument = r.IR & 0x07FFFFFF
-        if argument & (1 << 26):
-            argument -= (1 << 27)
-
-        r.DR = argument
         r.uPC = self.LUT[opcode]
         r.macro_cnt += 1
-        print(f"OPCODE={opcode} uPC={self.LUT[opcode]} ROM[{self.LUT[opcode]}]={hex(self.ROM[self.LUT[opcode]])}")
-        self.log.write(f"[TICK  {r.macro_cnt} (FETCH)] IP={r.IP:04} OPCODE={opcode:02} ARG={argument}\n")
+        self.log.write(f"[TICK  {r.macro_cnt} (FETCH)] IP={r.IP:04} OPCODE={opcode:02}\n")
         self.log.write("-" * 40 + "\n")
+        self.print_memory()
+        self.step()
 
     def step(self):
         r = self.registers
         uword = self.ROM[r.uPC]
-        r.macro_cnt += 1
 
         halted = (uword >> 26) & 1
         acc_l = (uword >> 25) & 1
@@ -74,7 +76,6 @@ class CPU:
         cond = (uword >> 6) & 0b111
         next_u = uword & 0x3F
 
-        # ───── ALU ─────
         left = {1: r.ACC, 2: r.SP}.get(cla, 0)
         right = {1: r.DR, 2: r.IP}.get(cld, 0)
 
@@ -87,9 +88,9 @@ class CPU:
         elif alu_op == 0b011:
             alu = (left // right if right != 0 else 0) & 0xFFFFFFFF
         elif alu_op == 0b100:
-            alu = (right + 1) & 0xFFFFFFFF
+            alu = (right + left + 1) & 0xFFFFFFFF
         elif alu_op == 0b101:
-            alu = (left - 1) & 0xFFFFFFFF
+            alu = (left + right - 1) & 0xFFFFFFFF
         else:
             alu = 0
 
@@ -97,7 +98,7 @@ class CPU:
             r.ACC = 0 if io_sel else alu
 
         if dal:
-            r.DataA = r.DR if adr_sel else r.ACC
+            r.DataA = r.ARG if adr_sel else alu
 
         if mem_l:
             self.memory.data[r.DataA] = r.ACC & 0xFFFFFFFF
@@ -112,10 +113,10 @@ class CPU:
             print(f"[OUT]: {chr(r.ACC & 0xFF)}")
 
         if ip_l:
-            if ip_sel == 0b00:
-                r.IP = alu
-            elif ip_sel == 0b01:
-                r.IP = r.DR
+            r.IP = alu if ip_sel == 0 else r.ARG
+
+        r.Z = 1 if alu == 0 else 0
+        r.N = (alu >> 31) & 1
 
         cond_true = (
                 (cond == 0b001) or
@@ -125,13 +126,14 @@ class CPU:
                 (cond == 0b101 and r.N == 0 and r.Z == 0)
         )
 
+        r.macro_cnt += 1
+        self.print_state()
+
         self.last_uPC = r.uPC
         r.uPC = next_u if cond_true else (r.uPC + 1) & 0x3F
 
         if halted:
             r.halted = True
-
-        self.print_state()
 
         if r.uPC == 0 and not r.halted and self.last_uPC != 0:
             self.fetch_next_instruction()
@@ -162,29 +164,28 @@ class CPU:
         self.log.write("-" * 40 + "\n")
 
 
-def load_binary(filepath):
-    with open(filepath, 'rb') as f:
+def load_binary(path):
+    with open(path, "rb") as f:
         data = f.read()
 
-    word_count, = struct.unpack_from('>I', data, 0)
+    instr_count = struct.unpack_from(">I", data, 0)[0]
+    instr_mem = []
     offset = 4
+    for _ in range(instr_count):
+        instr = struct.unpack_from(">I", data, offset)[0]
+        instr_mem.append(instr)
+        offset += 4
 
     data_mem = {}
-    for _ in range(word_count):
-        addr, val = struct.unpack_from('>II', data, offset)
+    while offset < len(data):
+        addr, val = struct.unpack_from(">Ii", data, offset)
         data_mem[addr] = val
         offset += 8
-
-    instr_mem = []
-    while offset < len(data):
-        word, = struct.unpack_from('>I', data, offset)
-        instr_mem.append(word)
-        offset += 4
 
     return instr_mem, data_mem
 
 
-instr_mem, data_mem = load_binary("..\\test_binop.bin")
+instr_mem, data_mem = load_binary("..\\store_addr_test_compatible.bin")
 cpu = CPU(instr_mem, data_mem)
 cpu.print_memory()
 cpu.run()

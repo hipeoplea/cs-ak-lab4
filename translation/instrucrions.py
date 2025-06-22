@@ -2,7 +2,9 @@ from enum import Enum
 
 class Opcode(str, Enum):
     LOAD = "load"
+    LOAD_ADDR = "load_addr"
     STORE = "store"
+    STORE_ADDR = "store_addr"
     PUSH = "push"
     POP = "pop"
     ADD = "add"
@@ -22,6 +24,7 @@ class Opcode(str, Enum):
 
 OPCODE_TABLE = {
     'halt': 0b00000,
+    'load_addr': 0b00001,
     'load': 0b00010,
     'store': 0b00011,
     'push': 0b00100,
@@ -39,6 +42,7 @@ OPCODE_TABLE = {
     'jnz':  0b10001,
     'jlt':  0b10010,
     'jgt':  0b10011,
+    'store_addr': 0b10100
 }
 
 BRANCH_OPS = {Opcode.JMP.value, Opcode.JZ.value, Opcode.JNZ.value,
