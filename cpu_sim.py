@@ -1,5 +1,6 @@
 import struct
-from microcode_memory import ROM, OPCODE_TO_UADDR
+
+from microcode_memory import OPCODE_TO_UADDR, ROM
 
 
 class Registers:
@@ -24,6 +25,27 @@ class Memory:
         self.instr = []
 
 
+def _decode_microcode(uword):
+    return {
+        "halted": (uword >> 26) & 1,
+        "acc_l": (uword >> 25) & 1,
+        "dal": (uword >> 24) & 1,
+        "mem_l": (uword >> 23) & 1,
+        "sp_l": (uword >> 22) & 1,
+        "dr_l": (uword >> 21) & 1,
+        "out_l": (uword >> 20) & 1,
+        "ip_l": (uword >> 19) & 1,
+        "adr_sel": (uword >> 18) & 1,
+        "io_sel": (uword >> 17) & 1,
+        "cla": (uword >> 15) & 0b11,
+        "cld": (uword >> 13) & 0b11,
+        "ip_sel": (uword >> 12) & 1,
+        "alu_op": (uword >> 9) & 0b111,
+        "cond": (uword >> 6) & 0b111,
+        "next_u": uword & 0x3F,
+    }
+
+
 class CPU:
     def __init__(self, instr_mem, data_mem, log_path="trace.log", input_path=None, output_path=None):
         self.ROM = ROM
@@ -34,7 +56,7 @@ class CPU:
         self.memory.instr = instr_mem
         self.memory.data = data_mem
 
-        self.input_buffer = list(open(input_path, encoding='utf-8').read()) if input_path else []
+        self.input_buffer = list(open(input_path, encoding="utf-8").read()) if input_path else []
         self.output_buffer = []
         self.output_path = output_path
 
@@ -63,76 +85,74 @@ class CPU:
         r = self.registers
         uword = self.ROM[r.uPC]
 
-        halted = (uword >> 26) & 1
-        acc_l = (uword >> 25) & 1
-        dal = (uword >> 24) & 1
-        mem_l = (uword >> 23) & 1
-        sp_l = (uword >> 22) & 1
-        dr_l = (uword >> 21) & 1
-        out_l = (uword >> 20) & 1
-        ip_l = (uword >> 19) & 1
-        adr_sel = (uword >> 18) & 1
-        io_sel = (uword >> 17) & 1
-        cla = (uword >> 15) & 0b11
-        cld = (uword >> 13) & 0b11
-        ip_sel = (uword >> 12) & 1
-        alu_op = (uword >> 9) & 0b111
-        cond = (uword >> 6) & 0b111
-        next_u = uword & 0x3F
+        signals = _decode_microcode(uword)
+        alu = self._execute_alu(signals)
+        self._apply_latches(signals, alu)
+        self._update_flags_and_branch(signals, alu)
 
-        left = {1: r.ACC, 2: r.SP}.get(cla, 0)
-        right = {1: r.DR, 2: r.IP}.get(cld, 0)
+    def _execute_alu(self, s):
+        r = self.registers
+        left = {1: r.ACC, 2: r.SP}.get(s["cla"], 0)
+        right = {1: r.DR, 2: r.IP}.get(s["cld"], 0)
+        op = s["alu_op"]
 
-        if alu_op == 0b000:
-            alu = (left + right) & 0xFFFFFFFF
-        elif alu_op == 0b001:
-            alu = (left - right) & 0xFFFFFFFF
-        elif alu_op == 0b010:
-            alu = (left * right) & 0xFFFFFFFF
-        elif alu_op == 0b011:
-            alu = (left // right if right != 0 else 0) & 0xFFFFFFFF
-        elif alu_op == 0b100:
-            alu = (right + left + 1) & 0xFFFFFFFF
-        elif alu_op == 0b101:
-            alu = (left + right - 1) & 0xFFFFFFFF
-        else:
-            alu = 0
+        alu_ops = {
+            0: lambda l_alu, r_alu: l_alu + r_alu,
+            1: lambda l_alu, r_alu: l_alu - r_alu,
+            2: lambda l_alu, r_alu: l_alu * r_alu,
+            3: lambda l_alu, r_alu: l_alu // r_alu if r_alu != 0 else 0,
+            4: lambda l_alu, r_alu: l_alu + r_alu + 1,
+            5: lambda l_alu, r_alu: l_alu + r_alu - 1,
+        }
 
-        if acc_l:
-            if io_sel:
-                if self.input_buffer:
-                    char = self.input_buffer.pop(0)
-                    r.ACC = ord(char)
-                else:
-                    r.halted = True
+        return alu_ops.get(op, lambda l_alu, r_alu: 0)(left, right) & 0xFFFFFFFF
+
+    def _update_acc(self, s, alu):
+        r = self.registers
+        if not s["acc_l"]:
+            return
+        if s["io_sel"]:
+            if self.input_buffer:
+                r.ACC = ord(self.input_buffer.pop(0))
             else:
-                r.ACC = alu
+                r.halted = True
+        else:
+            r.ACC = alu
 
-        if dal:
-            r.DataA = r.ARG if adr_sel else alu
-
-        if mem_l:
+    def _update_memory_access(self, s, alu):
+        r = self.registers
+        if s["dal"]:
+            r.DataA = r.ARG if s["adr_sel"] else alu
+        if s["mem_l"]:
             self.memory.data[r.DataA] = r.ACC & 0xFFFFFFFF
-
-        if dr_l:
+        if s["dr_l"]:
             r.DR = self.memory.data.get(r.DataA, 0)
 
-        if sp_l:
+    def _update_sp_ip_out(self, s, alu):
+        r = self.registers
+        if s["sp_l"]:
             r.SP = alu
-
-        if out_l:
+        if s["out_l"]:
             ch = chr(r.ACC & 0xFF)
             self.output_buffer.append(ch)
             print(f"[OUT]: {ch}")
+        if s["ip_l"]:
+            r.IP = alu if s["ip_sel"] == 0 else r.ARG
 
-        if ip_l:
-            r.IP = alu if ip_sel == 0 else r.ARG
+    def _apply_latches(self, s, alu):
+        self._update_acc(s, alu)
+        self._update_memory_access(s, alu)
+        self._update_sp_ip_out(s, alu)
 
-        r.Z = 1 if alu == 0 else 0
+    def _update_flags_and_branch(self, s, alu):
+        r = self.registers
+
+        r.Z = int(alu == 0)
         r.N = (alu >> 31) & 1
 
+        cond = s["cond"]
         cond_true = (
-                (cond == 0b001) or
+                cond == 0b001 or
                 (cond == 0b010 and r.Z == 1) or
                 (cond == 0b011 and r.N != 0) or
                 (cond == 0b100 and r.Z == 0) or
@@ -143,9 +163,9 @@ class CPU:
         self.print_state()
 
         self.last_uPC = r.uPC
-        r.uPC = next_u if cond_true else (r.uPC + 1) & 0x3F
+        r.uPC = s["next_u"] if cond_true else (r.uPC + 1) & 0x3F
 
-        if halted:
+        if s["halted"]:
             r.halted = True
 
         if r.uPC == 0 and not r.halted and self.last_uPC != 0:
@@ -199,6 +219,7 @@ def load_binary(path):
         offset += 8
 
     return instr_mem, data_mem
+
 
 if __name__ == "__main__":
     import sys

@@ -1,8 +1,8 @@
 import struct
 import sys
 
-from tokenizer import *
-from instrucrions import *
+from instrucrions import BRANCH_OPS, OPCODE_TABLE, Opcode
+from tokenizer import LispParser, ast_to_expr
 
 
 class CodeGenerator:
@@ -11,23 +11,23 @@ class CodeGenerator:
         # секции
         self.data_lines, self.code_lines = [], []
         # карты адресов
-        self.data_addr: dict[str, int] = {}
-        self.const_map: dict[int, str] = {}         # value → label
-        self.funcs: dict[str, tuple[list[str], list[dict]]] = {}
-        self.scopes: list[dict[str, str]] = [{}]    # переменные
+        self.data_addr = {}
+        self.const_map = {}  # value → label
+        self.funcs = {}
+        self.scopes = [{}]  # переменные
 
-    def _lab(self, p='L'):
+    def _lab(self, p="L"):
         self.lab_cnt += 1
-        return f'{p}{self.lab_cnt}'
+        return f"{p}{self.lab_cnt}"
 
     def _const(self, v: int):
         if v not in self.const_map:
-            lbl = f'c_{v}'
+            lbl = f"c_{v}"
             self.const_map[v] = lbl
-            self.data_lines.append(f'{lbl} .word {v}')
+            self.data_lines.append(f"{lbl} .word {v}")
         return self.const_map[v]
 
-    def _emit(self, op: str, arg: str | int | None = None):
+    def _emit(self, op, arg):
         self.code_lines.append(op if arg is None else f"{op} {arg}")
 
     def _label(self, name: str):
@@ -36,9 +36,9 @@ class CodeGenerator:
     def _decl(self, name: str):
         scope = self.scopes[-1]
         if name not in scope:
-            addr = f'{name}_{len(self.scopes)-1}'
+            addr = f"{name}_{len(self.scopes) - 1}"
             scope[name] = addr
-            self.data_lines.append(f'{addr} .word 0')
+            self.data_lines.append(f"{addr} .word 0")
         return scope[name]
 
     def _addr(self, name: str):
@@ -49,18 +49,18 @@ class CodeGenerator:
 
     # ───────── expr ─────────
     def expr(self, e):
-        t = e['type']
+        t = e["type"]
 
-        if t == 'number':
-            self._emit(Opcode.LOAD.value, self._const(e['value']))
+        if t == "number":
+            self._emit(Opcode.LOAD.value, self._const(e["value"]))
             return
 
-        if t in ('var'):
-            self._emit(Opcode.LOAD.value, self._addr(e['name']))
+        if t in ("var"):
+            self._emit(Opcode.LOAD.value, self._addr(e["name"]))
             return
 
-        if t == 'string':
-            s = e['value'].rstrip('\n')[:32]  # <= здесь убираем \n
+        if t == "string":
+            s = e["value"].rstrip("\n")[:32]  # <= здесь убираем \n
             self._emit(Opcode.LOAD.value, self._const(len(s)))  # длина
             self._emit(Opcode.OUT.value, 0)
             for ch in s:
@@ -68,18 +68,20 @@ class CodeGenerator:
                 self._emit(Opcode.OUT.value, 0)
             return
 
-        if t == 'binop':
-            l, r, op = e['left'], e['right'], e['op']
-            tl, tr = self._decl('_tl'), self._decl('_tr')
-            self.expr(l); self._emit(Opcode.STORE.value, tl)
-            self.expr(r); self._emit(Opcode.STORE.value, tr)
+        if t == "binop":
+            left, r, op = e["left"], e["right"], e["op"]
+            tl, tr = self._decl("_tl"), self._decl("_tr")
+            self.expr(left)
+            self._emit(Opcode.STORE.value, tl)
+            self.expr(r)
+            self._emit(Opcode.STORE.value, tr)
             self._emit(Opcode.LOAD.value, tl)
-            if op in '+-*/':
-                self._emit({'+': Opcode.ADD, '-': Opcode.SUB, '*': Opcode.MUL, '/': Opcode.DIV}[op].value, tr)
+            if op in "+-*/":
+                self._emit({"+": Opcode.ADD, "-": Opcode.SUB, "*": Opcode.MUL, "/": Opcode.DIV}[op].value, tr)
                 return
             self._emit(Opcode.SUB.value, tr)
-            lt, le = self._lab('T'), self._lab('E')
-            self._emit({'=': Opcode.JZ, '!=': Opcode.JNZ, '<': Opcode.JLT, '>': Opcode.JGT}[op].value, lt)
+            lt, le = self._lab("T"), self._lab("E")
+            self._emit({"=": Opcode.JZ, "!=": Opcode.JNZ, "<": Opcode.JLT, ">": Opcode.JGT}[op].value, lt)
             self._emit(Opcode.LOAD.value, self._const(0))
             self._emit(Opcode.JMP.value, le)
             self._label(lt)
@@ -87,22 +89,23 @@ class CodeGenerator:
             self._label(le)
             return
 
-        if t == 'funcall':
-            if e['name'] == 'print_string':
-                arg = e['args'][0]
-                if arg['type'] == 'string':
+        if t == "funcall":
+            if e["name"] == "print_string":
+                arg = e["args"][0]
+                if arg["type"] == "string":
                     self.expr(arg)
                 else:
                     self._emit(Opcode.LOAD.value, self._const(0))
                     self._emit(Opcode.OUT.value, 0)
                 return
-            for a in e['args']:
-                self.expr(a); self._emit(Opcode.PUSH.value)
-            self._emit(Opcode.CALL.value, e['name'])
+            for a in e["args"]:
+                self.expr(a)
+                self._emit(Opcode.PUSH.value)
+            self._emit(Opcode.CALL.value, e["name"])
             return
 
-        if t == 'read_line':
-            a = self._addr(e['value']['name'])
+        if t == "read_line":
+            a = self._addr(e["value"]["name"])
             self._emit(Opcode.IN_.value, 0)
             self._emit(Opcode.STORE.value, a)
             self._emit(Opcode.LOAD.value, a)
@@ -113,38 +116,44 @@ class CodeGenerator:
     def node(self, n):
         if n is None:
             return
-        t = n['type']
-        if t in ('var', 'var_decl'):
-            a = self._decl(n['name'])
-            if 'expr' in n and not (n['expr']['type'] == 'number' and n['expr']['value'] == 0):
-                self.expr(n['expr']); self._emit(Opcode.STORE.value, a)
+        t = n["type"]
+        if t in ("var", "var_decl"):
+            a = self._decl(n["name"])
+            if "expr" in n and not (n["expr"]["type"] == "number" and n["expr"]["value"] == 0):
+                self.expr(n["expr"])
+                self._emit(Opcode.STORE.value, a)
             return
-        if t == 'set':
-            self.expr(n['expr']); self._emit(Opcode.STORE.value, self._addr(n['name']))
+        if t == "set":
+            self.expr(n["expr"])
+            self._emit(Opcode.STORE.value, self._addr(n["name"]))
             return
-        if t == 'defunc':
-            self.funcs[n['name']] = (n['params'], n['body'])
+        if t == "defunc":
+            self.funcs[n["name"]] = (n["params"], n["body"])
             return
-        if t == 'print_string':
-            self.expr({'type': 'funcall', 'name': 'print_string', 'args': [n['value']]})
+        if t == "print_string":
+            self.expr({"type": "funcall", "name": "print_string", "args": [n["value"]]})
             return
-        if t == 'if':
-            le, ld = self._lab('ELSE'), self._lab('END')
-            self.expr(n['cond']); self._emit(Opcode.JZ.value, le)
-            self.node(n['then']); self._emit(Opcode.JMP.value, ld)
-            self._label(le); self.node(n.get('else'))
+        if t == "if":
+            le, ld = self._lab("ELSE"), self._lab("END")
+            self.expr(n["cond"])
+            self._emit(Opcode.JZ.value, le)
+            self.node(n["then"])
+            self._emit(Opcode.JMP.value, ld)
+            self._label(le)
+            self.node(n.get("else"))
             self._label(ld)
             return
-        if t == 'while':
-            ls, le = self._lab('W0'), self._lab('W1')
+        if t == "while":
+            ls, le = self._lab("W0"), self._lab("W1")
             self._label(ls)
-            self.expr(n['cond']); self._emit(Opcode.JZ.value, le)
-            for s in n['body']:
+            self.expr(n["cond"])
+            self._emit(Opcode.JZ.value, le)
+            for s in n["body"]:
                 self.node(s)
             self._emit(Opcode.JMP.value, ls)
             self._label(le)
             return
-        if t == 'funcall':
+        if t == "funcall":
             self.expr(n)
             return
         self.expr(n)
@@ -153,7 +162,7 @@ class CodeGenerator:
         for name, (params, body) in self.funcs.items():
             self.scopes.append({})
             self._label(name)
-            ret_tmp = self._decl('_ret')
+            ret_tmp = self._decl("_ret")
             self._emit(Opcode.POP.value)
             self._emit(Opcode.STORE.value, ret_tmp)
             for p in reversed(params):
@@ -173,13 +182,13 @@ class CodeGenerator:
             addr += 1
         pc, lbl_addr = 0, {}
         for ln in self.code_lines:
-            if ln.endswith(':'):
+            if ln.endswith(":"):
                 lbl_addr[ln[:-1]] = pc
             else:
                 pc += 1
         out, pc = [], 0
         for ln in self.code_lines:
-            if ln.endswith(':'):
+            if ln.endswith(":"):
                 continue
             parts = ln.split()
             if len(parts) == 2:
@@ -200,19 +209,25 @@ class CodeGenerator:
         self._emit_funcs()
 
     def code(self):
-        return '\n'.join(['.data'] + self.data_lines + ['', '.text'] + self._link())
+        return "\n".join([
+            ".data",
+            *self.data_lines,
+            "",
+            ".text",
+            *self._link(),
+        ])
 
     def to_binary(self):
         linked = self._link()
         binary = bytearray()
 
         word_count = len(self.data_lines)
-        binary.extend(struct.pack('>I', word_count))  # количество .word
+        binary.extend(struct.pack(">I", word_count))  # количество .word
 
         for i, line in enumerate(self.data_lines):
             value = int(line.split()[-1])
-            binary.extend(struct.pack('>I', i))  # адрес
-            binary.extend(struct.pack('>I', value))  # значение
+            binary.extend(struct.pack(">I", i))  # адрес
+            binary.extend(struct.pack(">I", value))  # значение
 
         for line in linked:
             parts = line.split()
@@ -222,13 +237,13 @@ class CodeGenerator:
             if arg < 0:
                 arg &= (1 << 27) - 1
             word = (opcode << 27) | arg
-            binary.extend(struct.pack('>I', word))
+            binary.extend(struct.pack(">I", word))
 
         return binary
 
 
-if __name__ == '__main__':
-    if sys.argv[1] == '--test':
+if __name__ == "__main__":
+    if sys.argv[1] == "--test":
         code = """
         (defunc f (x) ((print_string x)))
         (funcall f ("Hello!\n"))
@@ -241,16 +256,16 @@ if __name__ == '__main__':
         print("ASM:", gen.code())
         print("HEX:", gen.to_binary())
     else:
-        with open(sys.argv[1], 'r', encoding='utf-8') as f:
+        with open(sys.argv[1], encoding="utf-8") as f:
             src = f.read()
         parser = LispParser(src)
         prog = [ast_to_expr(e) for e in parser.parse_program()]
         gen = CodeGenerator()
         gen.generate(prog)
-        with open(sys.argv[2].replace('.bin', '.txt'), 'w') as f:
+        with open(sys.argv[2].replace(".bin", ".txt"), "w") as f:
             f.write(gen.code())
-        with open(sys.argv[2].replace('.bin', '.sym'), 'w') as f:
+        with open(sys.argv[2].replace(".bin", ".sym"), "w") as f:
             for name, addr in gen.data_addr.items():
-                f.write(f'{name} = {addr}\n')
-        with open(sys.argv[2], 'wb') as f:
+                f.write(f"{name} = {addr}\n")
+        with open(sys.argv[2], "wb") as f:
             f.write(gen.to_binary())
