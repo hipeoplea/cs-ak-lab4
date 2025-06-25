@@ -73,6 +73,7 @@ def ast_to_expr(ast):
         "print_string": _parse_print_string,
         "read_line": _parse_read_line,
         "funcall": _parse_funcall,
+        "get": _parse_get
     }
 
     if head in ("+", "-", "*", "/", "=", "<", ">"):
@@ -84,6 +85,13 @@ def ast_to_expr(ast):
 
     return None
 
+def _parse_get(args):
+    return {
+        "type": "get",
+        "array": ast_to_expr(args[0]),
+        "index": ast_to_expr(args[1])
+    }
+
 
 def _parse_var(args):
     value = ast_to_expr(args[1])
@@ -92,15 +100,29 @@ def _parse_var(args):
     return {"type": "var", "name": args[0], "expr": value}
 
 def _parse_set(args):
-    return {"type": "set", "name": args[0], "expr": ast_to_expr(args[1])}
+    target = args[0]
+    expr = ast_to_expr(args[1])
+    if isinstance(target, list) and target[0] == "get":
+        return {
+            "type": "set_get",
+            "array": ast_to_expr(target[1]),
+            "index": ast_to_expr(target[2]),
+            "expr": expr
+        }
+    return {
+        "type": "set",
+        "name": target,
+        "expr": expr
+    }
 
 def _parse_defunc(args):
     return {
         "type": "defunc",
         "name": args[0],
         "params": args[1][0],
-        "body": [ast_to_expr(b) for b in args[2:][0]],
+        "body": [ast_to_expr(b) for b in args[2]]
     }
+
 
 def _parse_binop(op, args):
     left, right = args
@@ -120,11 +142,15 @@ def _parse_if(args):
     }
 
 def _parse_while(args):
+    body = args[1]
+    if not isinstance(body, list):
+        raise SyntaxError("while body must be a list")
     return {
         "type": "while",
         "cond": ast_to_expr(args[0]),
-        "body": [ast_to_expr(b) for b in args[1:]],
+        "body": [ast_to_expr(stmt) for stmt in body]
     }
+
 
 def _parse_print_string(args):
     return {"type": "print_string", "value": ast_to_expr(args[0])}

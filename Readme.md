@@ -26,65 +26,72 @@
 круглые скобки, где первым элементом обычно является оператор или имя функции, а далее следуют аргументы. Ниже
 представлена формальная грамматика (в стиле BNF) языка, основанного на Lisp, определяющая допустимые конструкции
 программ.
+```
+<program> ::= <statement_list>
 
-  ```
-  <program> ::= <statement_list>
-  
-  <statement_list> ::= <statement> | <statement> <statement_list>
-  
-  <statement> ::= <var_declaration>
-                | <if_statement>
-                | <defunc_declaration>
-                | <while_statement>
-                | <function_call>
-                | <print_string>
-                | <read_line>
-  
-  <var_declaration> ::= "(var" <identifier> <expression> ")"
-  
-  <if_statement> ::= "(if" <condition> <statement_list> <statement_list> ")"
-  
-  <while_statement> ::= "(while" <condition> <statement_list> ")"
-  
-  <defunc_declaration> ::= "(defunc" <identifier> "(" <parameter_list> ")" <statement_list> ")"
-  
-  <function_call> ::= "(funcall" <identifier> "(" <argument_list> "))"
-  
-  <print_string> ::= "(print_string" <string> ")"
-  
-  <read_line> ::= "(read_line" <identifier> ")"
-  
-  <condition> ::= "(" <comparison_operator> <expression> <expression> ")"
-  
-  <comparison_operator> ::= ">" | "<" | "=" | "!="
-  
-  <expression> ::= <number>
-                | <identifier>
-                | "(" <operator> <expression> <expression> ")"
-  
-  <operator> ::= "+" | "-" | "*" | "/"
-  
-  <parameter_list> ::= <identifier> | <identifier> <parameter_list>
-  
-  <argument_list> ::= <expression> | <expression> <argument_list>
-  
-  <identifier> ::= <letter> | <letter> <identifier_tail>
-  
-  <identifier_tail> ::= <letter> | <digit> | <identifier_tail>
-  
-  <string> ::= "\"" <string_content> "\""
-  
-  <string_content> ::= <character> | <character> <string_content>
-  
-  <character> ::= <letter> | <digit> | " " | "," | "!" | "?" 
-  
-  <letter> ::= "a" | "b" | ... | "z" | "A" | "B" | ... | "Z"
-  
-  <digit> ::= "0" | "1" | ... | "9"
-  
-  <number> ::= <digit> | <digit> <number>
-  
-  ```
+<statement_list> ::= <statement> | <statement> <statement_list>
+
+<lvalue> ::= <identifier>
+
+<statement> ::= <var_declaration>
+              | <set_statement>
+              | <if_statement>
+              | <while_statement>
+              | <defunc_declaration>
+              | <function_call>
+              | <print_string>
+              | <read_line>
+
+<var_declaration> ::= "(var" <identifier> <expression> ")"
+
+<set_statement> ::= "(set" <lvalue> <expression> ")"
+
+<lvalue> ::= <identifier>
+           | "(get" <identifier> <expression> ")"
+
+<if_statement> ::= "(if" <condition> <statement_list> <statement_list> ")"
+
+<while_statement> ::= "(while" <condition> <statement_list> ")"
+
+<defunc_declaration> ::= "(defunc" <identifier> "(" <parameter_list> ")" <statement_list> ")"
+
+<function_call> ::= "(funcall" <identifier> "(" <argument_list> "))"
+
+<print_string> ::= "(print_string" <string> ")"
+
+<read_line> ::= "(read_line" <identifier> ")"
+
+<condition> ::= "(" <comparison_operator> <expression> <expression> ")"
+
+<comparison_operator> ::= ">" | "<" | "=" | "!="
+
+<expression> ::= <number>
+               | <identifier>
+               | "(" <operator> <expression> <expression> ")"
+               | "(get" <identifier> <expression> ")"
+
+<operator> ::= "+" | "-" | "*" | "/"
+
+<parameter_list> ::= <identifier> | <identifier> <parameter_list>
+
+<argument_list> ::= <expression> | <expression> <argument_list>
+
+<identifier> ::= <letter> | <letter> <identifier_tail>
+
+<identifier_tail> ::= <letter> | <digit> | <identifier_tail>
+
+<string> ::= "\"" <string_content> "\""
+
+<string_content> ::= <character> | <character> <string_content>
+
+<character> ::= <letter> | <digit> | " " | "," | "!" | "?"
+
+<letter> ::= "a" | "b" | ... | "z" | "A" | "B" | ... | "Z"
+
+<digit> ::= "0" | "1" | ... | "9"
+
+<number> ::= <digit> | <digit> <number>
+```
 
 ## Семантика
 
@@ -92,10 +99,11 @@
 - Все выражения возвращают значения.
 - Любое выражение или вызов функции всегда возвращают последнее вычисленное выражение.
 - Выполнение программы начинается с первого выражения, не считая объявления функций.
-- Переменные создаются через `var`, область видимости — глобальная и функциональная. Из функции невозможно обратиться к
-  переменным извне, следует передавать их как аргументы.
+- Переменные создаются через `var`, область видимости — глобальная и функциональная. Из функции невозможно обратиться к переменным извне, следует передавать их как аргументы.
 - Имена переменных и функций чувствительны к регистру.
-- `set` - присвоить переменной значение
+- `set` — присвоить переменной значение. Также допускается `(set (get arr idx) expr)` — запись по индексу в массив.
+- `get` — выражение, возвращающее значение по индексу из массива: `(get arr idx)`.
+- `var` может использовать форму `(var arr [N])` — создаёт массив из `N` машинных слов.
 - `if` вычисляет условие, затем один из блоков `statement_list`.
 - `while` повторяет выполнение `statement_list`, пока условие истинно.
 - `defunc` создаёт именованную функцию с параметрами и телом, поддерживается рекурсия.

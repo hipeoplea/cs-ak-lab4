@@ -1,0 +1,6 @@
+(print_string "What is your name?\n")
+(var name [32])
+(read_line name)
+(print_string "Hello, ")
+(print_string name)
+(print_string "!\n")

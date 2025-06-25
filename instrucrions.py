@@ -3,9 +3,9 @@ from enum import Enum
 
 class Opcode(str, Enum):
     LOAD = "load"
-    LOAD_ADDR = "load_addr"
+    LOAD_ADR = "load_addr"
     STORE = "store"
-    STORE_ADDR = "store_addr"
+    STORE_ADR = "store_addr"
     PUSH = "push"
     POP = "pop"
     ADD = "add"

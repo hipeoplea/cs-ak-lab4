@@ -57,6 +57,7 @@ class CPU:
         self.memory.data = data_mem
 
         self.input_buffer = list(open(input_path, encoding="utf-8").read()) if input_path else []
+        print(self.input_buffer)
         self.output_buffer = []
         self.output_path = output_path
 
@@ -78,7 +79,6 @@ class CPU:
         r.macro_cnt += 1
         self.log.write(f"[TICK  {r.macro_cnt} (FETCH)] IP={r.IP:04} OPCODE={opcode:02}\n")
         self.log.write("-" * 40 + "\n")
-        self.print_memory()
         self.step()
 
     def step(self):
@@ -114,10 +114,13 @@ class CPU:
         if s["io_sel"]:
             if self.input_buffer:
                 r.ACC = ord(self.input_buffer.pop(0))
+                print(r.ACC)
             else:
                 r.halted = True
         else:
             r.ACC = alu
+        r.Z = int(r.ACC == 0)
+        r.N = (r.ACC >> 31) & 1
 
     def _update_memory_access(self, s, alu):
         r = self.registers
@@ -133,9 +136,13 @@ class CPU:
         if s["sp_l"]:
             r.SP = alu
         if s["out_l"]:
-            ch = chr(r.ACC & 0xFF)
-            self.output_buffer.append(ch)
-            print(f"[OUT]: {ch}")
+            if r.ACC > 255:
+                self.output_buffer.append(str(r.ACC))
+                print(f"[OUT_NUM]: {r.ACC}")
+            else:
+                ch = chr(r.ACC & 0xFF)
+                self.output_buffer.append(ch)
+                print(f"[OUT]: {ch}")
         if s["ip_l"]:
             r.IP = alu if s["ip_sel"] == 0 else r.ARG
 
@@ -146,10 +153,6 @@ class CPU:
 
     def _update_flags_and_branch(self, s, alu):
         r = self.registers
-
-        r.Z = int(alu == 0)
-        r.N = (alu >> 31) & 1
-
         cond = s["cond"]
         cond_true = (
                 cond == 0b001 or
@@ -234,7 +237,5 @@ if __name__ == "__main__":
     output_path = sys.argv[3]
 
     instr_mem, data_mem = load_binary(bin_path)
-
     cpu = CPU(instr_mem, data_mem, input_path=input_path, output_path=output_path)
     cpu.run()
-    cpu.print_memory()
