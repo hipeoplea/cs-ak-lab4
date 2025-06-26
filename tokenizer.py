@@ -1,6 +1,9 @@
 import re
 
 
+class InvalidWhileBodyError(TypeError):
+    """Body of a 'while' expression must be a list."""
+
 def tokenize(code):
     lines = code.splitlines()
     no_comments = [re.sub(r";.*$", "", line) for line in lines]
@@ -144,7 +147,7 @@ def _parse_if(args):
 def _parse_while(args):
     body = args[1]
     if not isinstance(body, list):
-        raise SyntaxError("while body must be a list")
+        raise InvalidWhileBodyError()
     return {
         "type": "while",
         "cond": ast_to_expr(args[0]),

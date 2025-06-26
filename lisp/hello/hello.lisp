@@ -1,3 +1,1 @@
-(print_string "abc")
-(var b "ajaj")
-(print_string b)
+(print_string "o kak ")

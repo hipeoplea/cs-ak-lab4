@@ -57,9 +57,9 @@ class CPU:
         self.memory.data = data_mem
 
         self.input_buffer = list(open(input_path, encoding="utf-8").read()) if input_path else []
-        print(self.input_buffer)
         self.output_buffer = []
         self.output_path = output_path
+
 
         self.last_uPC = 0
         self.log = open(log_path, "w", encoding="utf-8")
@@ -114,7 +114,6 @@ class CPU:
         if s["io_sel"]:
             if self.input_buffer:
                 r.ACC = ord(self.input_buffer.pop(0))
-                print(r.ACC)
             else:
                 r.halted = True
         else:
@@ -136,10 +135,6 @@ class CPU:
         if s["sp_l"]:
             r.SP = alu
         if s["out_l"]:
-            if r.ACC > 255:
-                self.output_buffer.append(str(r.ACC))
-                print(f"[OUT_NUM]: {r.ACC}")
-            else:
                 ch = chr(r.ACC & 0xFF)
                 self.output_buffer.append(ch)
                 print(f"[OUT]: {ch}")
@@ -187,13 +182,6 @@ class CPU:
         for addr, val in sorted(self.memory.data.items()):
             print(f"{addr:>5} : {val}")
 
-        print("\n=== .text memory (opcode, аргумент) ===")
-        for i, word in enumerate(self.memory.instr):
-            opcode = (word >> 27) & 0x1F
-            arg = word & 0x07FFFFFF
-            if arg & (1 << 26):
-                arg -= (1 << 27)
-            print(f"{i:04}: opcode={opcode:>2}, arg={arg}")
 
     def print_state(self):
         r = self.registers
@@ -224,6 +212,12 @@ def load_binary(path):
     return instr_mem, data_mem
 
 
+def main(bin_path, input_path=None, output_path=None, log_path="trace.log"):
+    instr_mem, data_mem = load_binary(bin_path)
+    cpu = CPU(instr_mem, data_mem, input_path=input_path, output_path=output_path, log_path=log_path)
+    cpu.run()
+
+
 if __name__ == "__main__":
     import sys
 
@@ -232,10 +226,4 @@ if __name__ == "__main__":
         print("  python cpu_sim.py <program.bin> <input.txt> <output.txt>")
         sys.exit(1)
 
-    bin_path = sys.argv[1]
-    input_path = sys.argv[2]
-    output_path = sys.argv[3]
-
-    instr_mem, data_mem = load_binary(bin_path)
-    cpu = CPU(instr_mem, data_mem, input_path=input_path, output_path=output_path)
-    cpu.run()
+    main(sys.argv[1], sys.argv[2], sys.argv[3])
