@@ -122,7 +122,7 @@ def _parse_defunc(args):
     return {
         "type": "defunc",
         "name": args[0],
-        "params": [ast_to_expr(a[0]) for a in args[1]],
+        "params": [ast_to_expr(a) for a in args[1]],
         "body": [ast_to_expr(b) for b in args[2]]
     }
 

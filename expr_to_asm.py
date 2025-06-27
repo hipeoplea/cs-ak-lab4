@@ -57,11 +57,9 @@ class CompileContext:
     def define_function(self, name, params, body):
         self.functions[name] = {"params": params, "body": body}
 
-
-def compile_expr(expr, ctx):
-    if expr["type"] == "binop" and expr["op"] == "=":
-        code = []
-        code += compile_expr(expr["left"], ctx)
+def compile_binop_expr(expr, ctx):
+    if expr["op"] in ("<", ">", "!=", "="):
+        code = compile_expr(expr["left"], ctx)
         code += [("push",)]
         code += compile_expr(expr["right"], ctx)
         tmp = ctx.allocate_temp()
@@ -69,6 +67,33 @@ def compile_expr(expr, ctx):
         code += [("sub", tmp)]
         return code
 
+    op_map = {"+": "add", "-": "sub", "*": "mul", "/": "div"}
+    code = compile_expr(expr["left"], ctx)
+    code += [("push",)]
+    code += compile_expr(expr["right"], ctx)
+    tmp = ctx.allocate_temp()
+    code += [("store", tmp), ("pop",)]
+    code += [(op_map[expr["op"]], tmp)]
+    return code
+
+
+def compile_funcall_expr(expr, ctx):
+    fname = expr["name"]
+    args = expr["args"]
+    param_names = ctx.functions[fname]["params"]
+
+    code = []
+    for arg_expr, param in zip(args, param_names):
+        code += compile_expr(arg_expr, ctx)
+        param_name = param["name"] if isinstance(param, dict) else param
+        code += [("store", ctx.lookup_var(param_name))]
+
+    code.append(("call", ("PENDING", fname)))
+    return code
+
+def compile_expr(expr, ctx):
+    if expr["type"] == "binop":
+        return compile_binop_expr(expr, ctx)
     if expr["type"] == "number":
         addr = ctx.allocate_literal(expr["value"])
         return [("load", addr)]
@@ -80,16 +105,9 @@ def compile_expr(expr, ctx):
         addr_holder = ctx.allocate_temp()
         ctx.literal_pool[addr_holder] = base
         return [("load", addr_holder)]
-    if expr["type"] == "binop":
-        op_map = {"+": "add", "-": "sub", "*": "mul", "/": "div"}
-        code = []
-        code += compile_expr(expr["left"], ctx)
-        code += [("push",)]
-        code += compile_expr(expr["right"], ctx)
-        tmp = ctx.allocate_temp()
-        code += [("store", tmp), ("pop",)]
-        code += [(op_map[expr["op"]], tmp)]
-        return code
+    if expr["type"] == "funcall":
+        return compile_funcall_expr(expr, ctx)
+
     raise NotImplementedError(f"Unknown expr type: {expr['type']}")
 
 
@@ -112,16 +130,18 @@ def compile_funcall(stmt, ctx):
 
 def compile_if(stmt, ctx):
     cond_code = compile_expr(stmt["cond"], ctx)
+    jump_instr = resolve_jump_op(stmt["cond"])
     code = []
     code += cond_code
     if stmt["then"] is not None:
         then_code = compile_stmt(stmt["then"], ctx)
-        code += [("jz", len(then_code) + 2)]
+        code += [(jump_instr, len(then_code) + 2)]
         code += then_code
     else_code = compile_stmt(stmt["else"], ctx) if stmt.get("else") else []
-    code += [("jz", len(else_code) + 1)]
+    code += [(jump_instr, len(else_code) + 1)]
     code += else_code
     return code
+
 
 
 def compile_read_line(expr, ctx):
@@ -182,6 +202,31 @@ def compile_print_string(expr, ctx):
     addr = ctx.store_string(s)
     return compile_print_var(ctx, address=addr)
 
+def resolve_jump_op(cond):
+    op = cond["op"]
+    return {
+        "=": "jz",
+        "!=": "jnz",
+        "<": "jgt",
+        ">": "jlt"
+    }[op]
+
+def compile_while(stmt, ctx):
+    start_idx = len(ctx.code)
+    cond_code = compile_expr(stmt["cond"], ctx)
+    jump_instr = resolve_jump_op(stmt["cond"])
+    code = cond_code
+    code += [(jump_instr, 0)]
+    jmp_idx = len(ctx.code) + len(code) - 1
+    for s in stmt["body"]:
+        code.extend(compile_stmt(s, ctx))
+    code.append(("jmp", start_idx - len(ctx.code) - 1 - len(code)))
+    ctx.code.extend(code)
+    after_body = len(ctx.code)
+    ctx.code[jmp_idx] = (jump_instr, after_body - jmp_idx)
+    return []
+
+
 
 def compile_stmt(stmt, ctx):
     handlers = {
@@ -191,6 +236,7 @@ def compile_stmt(stmt, ctx):
         "read_line": compile_read_line_stmt,
         "funcall": compile_funcall,
         "if": compile_if,
+        "while": compile_while,
         "defunc": lambda s, ctx: []
     }
     handler = handlers.get(stmt["type"])
@@ -239,15 +285,31 @@ def collect_functions(ast_list, ctx):
         if node["type"] == "defunc":
             ctx.define_function(node["name"], node["params"], node["body"])
 
+def declare_func_params(f, ctx):
+    for param in f["params"]:
+        if isinstance(param, dict) and "name" in param:
+            ctx.define_var(param["name"])
+        else:
+            ctx.define_var(param)
+
+def compile_func_body(f, ctx):
+    for stmt in f["body"]:
+        if stmt["type"] == "var":
+            compile_var_stmt(stmt, ctx)
+    for stmt in f["body"]:
+        if stmt["type"] in ("binop", "number", "var", "string", "funcall"):
+            ctx.code.extend(compile_expr(stmt, ctx))
+        else:
+            ctx.code.extend(compile_stmt(stmt, ctx))
+
 def compile_all_functions(ctx):
     for fname, f in ctx.functions.items():
         if ctx.function_addrs[fname] is None:
             ctx.function_addrs[fname] = len(ctx.code)
-        for param in f["params"]:
-            ctx.define_var(param["name"])
-        for stmt in f["body"]:
-            ctx.code.extend(compile_stmt(stmt, ctx))
+        declare_func_params(f, ctx)
+        compile_func_body(f, ctx)
         ctx.code.append(("ret",))
+
 
 def patch_pending_calls(ctx):
     for idx, instr in enumerate(ctx.code):

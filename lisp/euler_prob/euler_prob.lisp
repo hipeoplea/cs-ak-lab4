@@ -13,7 +13,4 @@
 (set tmp (* sum sum))
 (set tmp (- tmp sum_sq))
 
-(print_string "Difference = ")
 (print_string tmp)
-(print_string "
-")

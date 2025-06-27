@@ -46,6 +46,11 @@ def _decode_microcode(uword):
     }
 
 
+def to_signed32(x):
+    x &= 0xFFFFFFFF
+    return x if x < 0x80000000 else x - 0x100000000
+
+
 class CPU:
     def __init__(self, instr_mem, data_mem, log_path="trace.log", input_path=None, output_path=None):
         self.ROM = ROM
@@ -96,13 +101,15 @@ class CPU:
         right = {1: r.DR, 2: r.IP}.get(s["cld"], 0)
         op = s["alu_op"]
 
+
+
         alu_ops = {
-            0: lambda l_alu, r_alu: l_alu + r_alu,
-            1: lambda l_alu, r_alu: l_alu - r_alu,
-            2: lambda l_alu, r_alu: l_alu * r_alu,
-            3: lambda l_alu, r_alu: l_alu // r_alu if r_alu != 0 else 0,
-            4: lambda l_alu, r_alu: l_alu + r_alu + 1,
-            5: lambda l_alu, r_alu: l_alu + r_alu - 1,
+            0: lambda l_alu, r_alu: to_signed32(l_alu + r_alu),
+            1: lambda l_alu, r_alu: to_signed32(l_alu - r_alu),
+            2: lambda l_alu, r_alu: to_signed32(l_alu * r_alu),
+            3: lambda l_alu, r_alu: to_signed32(l_alu // r_alu) if r_alu != 0 else 0,
+            4: lambda l_alu, r_alu: to_signed32(l_alu + r_alu + 1),
+            5: lambda l_alu, r_alu: to_signed32(l_alu + r_alu - 1),
         }
 
         return alu_ops.get(op, lambda l_alu, r_alu: 0)(left, right) & 0xFFFFFFFF
@@ -151,9 +158,9 @@ class CPU:
         cond_true = (
                 cond == 0b001 or
                 (cond == 0b010 and r.Z == 1) or
-                (cond == 0b011 and r.N != 0) or
+                (cond == 0b011 and r.N == 1 and r.Z != 0) or
                 (cond == 0b100 and r.Z == 0) or
-                (cond == 0b101 and r.N == 0 and r.Z == 0)
+                (cond == 0b101 and r.N == 0 and r.Z != 0)
         )
 
         r.macro_cnt += 1
