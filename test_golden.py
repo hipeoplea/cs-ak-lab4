@@ -34,7 +34,7 @@ def test_translator_asm_and_machine(golden, caplog):
                 bin_path=target,
                 input_path=input_stream,
                 output_path=output_stream,
-                log_path=trace_path  # <- передаём путь явно
+                log_path=trace_path
             )
 
         with open(target, "rb") as file:
@@ -50,14 +50,4 @@ def test_translator_asm_and_machine(golden, caplog):
         assert code_hex.strip() == golden.out["out_code_hex"].strip()
         assert stdout.getvalue().strip() == golden.out["out_stdout"].strip()
         assert output_str.strip() == golden.out["out_output_file"].strip()
-        import difflib
-
-        diff_text = "\n".join(difflib.unified_diff(
-            golden.out["out_log"].splitlines(),
-            trace_log.splitlines(),
-            fromfile="expected",
-            tofile="actual",
-            lineterm=""
-        ))
-
-        assert trace_log[:MAX_LOGS].strip() == golden.out["out_log"][:MAX_LOGS].strip(), f"Log mismatch:\n{diff_text}"
+        assert trace_log[:MAX_LOGS].strip() == golden.out["out_log"][:MAX_LOGS].strip()

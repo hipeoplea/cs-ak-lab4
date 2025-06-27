@@ -135,9 +135,8 @@ class CPU:
         if s["sp_l"]:
             r.SP = alu
         if s["out_l"]:
-                ch = chr(r.ACC & 0xFF)
-                self.output_buffer.append(ch)
-                print(f"[OUT]: {ch}")
+                self.output_buffer.append(r.ACC)
+                print(f"[OUT]: {r.ACC}")
         if s["ip_l"]:
             r.IP = alu if s["ip_sel"] == 0 else r.ARG
 
@@ -182,6 +181,13 @@ class CPU:
         for addr, val in sorted(self.memory.data.items()):
             print(f"{addr:>5} : {val}")
 
+        print("\n=== .text memory (opcode, аргумент) ===")
+        for i, word in enumerate(self.memory.instr):
+            opcode = (word >> 27) & 0x1F
+            arg = word & 0x07FFFFFF
+            if arg & (1 << 26):
+                arg -= (1 << 27)
+            print(f"{i:04}: opcode={opcode:>2}, arg={arg}")
 
     def print_state(self):
         r = self.registers
